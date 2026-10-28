@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Rider Dodger — A George &amp; Strider collab</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#04070d;color:#e8fbff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+  body{display:flex;flex-direction:column;align-items:center}
+  header{width:100%;max-width:480px;padding:14px 16px 6px;text-align:center}
+  h1{margin:0;font-size:22px;letter-spacing:2px;color:#00f0ff;text-shadow:0 0 12px #00f0ff}
+  p.tag{margin:4px 0 0;color:#9beaff;font-size:13px}
+  #hud{width:100%;max-width:480px;display:flex;justify-content:space-between;gap:8px;padding:8px 16px;font-size:14px;font-weight:700}
+  #hud span{white-space:nowrap}
+  #msg{width:100%;max-width:480px;min-height:22px;text-align:center;color:#ffe259;font-size:14px;padding:0 16px}
+  #stage{position:relative;width:min(92vw,440px);aspect-ratio:400/520;max-height:calc(100dvh - 300px)}
+  canvas{width:100%;height:100%;display:block;background:#071018;border:2px solid #00f0ff;border-radius:14px;touch-action:none;box-shadow:0 0 24px rgba(0,240,255,.25)}
+  #controls{width:100%;max-width:480px;display:flex;gap:8px;justify-content:center;padding:10px 16px;flex-wrap:wrap}
+  button{background:#0a1a26;color:#e8fbff;border:1px solid #00f0ff;border-radius:10px;padding:12px 14px;font-size:15px;font-weight:700;min-height:48px;cursor:pointer}
+  button:active{background:#123a4a}
+  button.primary{background:#00f0ff;color:#04070d}
+  #pad{width:100%;max-width:480px;display:flex;gap:10px;justify-content:center;padding:0 16px 8px}
+  #pad button{flex:1;max-width:120px;font-size:22px}
+  #runs{width:100%;max-width:480px;text-align:center;color:#9beaff;font-size:12px;padding:0 16px 6px;min-height:16px}
+  footer{width:100%;max-width:480px;text-align:center;color:#7fa8b8;font-size:12px;padding:4px 16px 12px}
+  @media (max-width:380px){ #pad button{font-size:20px} h1{font-size:19px} }
+</style>
+</head>
+<body>
+<header>
+  <h1>RIDER DODGER</h1>
+  <p class="tag">You are the rider. Rain is the enemy. Stay dry, go further.</p>
+</header>
+<div id="hud"><span id="score">Distance: 0m</span><span id="hearts">💧💧💧</span><span id="best">Best: 0m</span></div>
+<div id="msg">Swipe left / right to change lane. Tap or swipe up to jump.</div>
+<div id="stage"><canvas id="game" width="400" height="520"></canvas></div>
+<div id="controls">
+  <button class="primary" id="startBtn">Start ride</button>
+  <button id="pauseBtn">Pause</button>
+  <button id="soundBtn">Sound: On</button>
+</div>
+<div id="pad">
+  <button id="leftBtn" aria-label="Move left">◀</button>
+  <button id="jumpBtn" aria-label="Jump">▲ Jump</button>
+  <button id="rightBtn" aria-label="Move right">▶</button>
+</div>
+<div id="runs"></div>
+<footer>A George &amp; Strider collab, built with Muse. No signup, no upload.</footer>
+<script>
+(function(){
+  "use strict";
+  var canvas = document.getElementById("game");
+  var ctx = canvas.getContext("2d");
+  var W = 400, H = 520, LANES = [80, 200, 320], GROUND_Y = 452;
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function load(key, fallback){
+    try { var v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); }
+    catch (e) { return fallback; }
+  }
+  function save(key, value){ try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
+  var best = load("rd-best", 0);
+  var runs = load("rd-runs", []);
+  var soundOn = load("rd-sound", true);
+  var state = "ready"; // ready | playing | paused | over
+  var lane = 1, riderY = 0, vy = 0, jumping = false;
+  var distance = 0, speed = 2.2, spawnTimer = 0, tick = 0;
+  var hearts = 3, invuln = 0, obstacles = [], particles = [], splash = 0;
+  var scoreEl = document.getElementById("score");
+  var bestEl = document.getElementById("best");
+  var heartsEl = document.getElementById("hearts");
+  var msgEl = document.getElementById("msg");
+  var runsEl = document.getElementById("runs");
+  var soundBtn = document.getElementById("soundBtn");
+  var startBtn = document.getElementById("startBtn");
+  var pauseBtn = document.getElementById("pauseBtn");
+
+  function renderRuns(){
+    if (!runs.length) { runsEl.textContent = ""; return; }
+    runsEl.textContent = "Last runs: " + runs.map(function(r){ return r + "m"; }).join(" · ");
+  }
+  function renderHud(){
+    scoreEl.textContent = "Distance: " + Math.floor(distance) + "m";
+    bestEl.textContent = "Best: " + best + "m";
+    heartsEl.textContent = hearts > 0 ? "💧".repeat(hearts) : "—";
+    if (Math.floor(distance) > best) { best = Math.floor(distance); save("rd-best", best); }
+  }
+  function blip(freq){
+    if (!soundOn) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ac = blip.ac || (blip.ac = new AC());
+      var o = ac.createOscillator(), g = ac.createGain();
+      o.type = "square"; o.frequency.value = freq;
+      g.gain.value = 0.04;
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + 0.08);
+    } catch (e) {}
+  }
+  function burst(x, y, color, n){
+    if (reduced) n = Math.min(n, 4);
+    for (var i = 0; i < n; i++){
+      particles.push({x:x, y:y, vx:(Math.random()-0.5)*4, vy:-Math.random()*3, life:18, color:color});
+    }
+  }
+  function reset(){
+    lane = 1; riderY = 0; vy = 0; jumping = false;
+    distance = 0; speed = 2.2; spawnTimer = 40; tick = 0;
+    hearts = 3; invuln = 0; obstacles = []; particles = []; splash = 0;
+    renderHud(); renderRuns();
+  }
+  function start(){
+    reset(); state = "playing"; startBtn.textContent = "Restart";
+    msgEl.textContent = "Ride! Dodge drops, jump puddles and gusts.";
+    blip(440);
+  }
+  function gameOver(){
+    state = "over";
+    runs.unshift(Math.floor(distance)); runs = runs.slice(0, 5); save("rd-runs", runs);
+    renderRuns();
+    msgEl.textContent = "Soaked! " + Math.floor(distance) + "m. Best: " + best + "m. Tap Start ride for one more run.";
+    burst(LANES[lane], GROUND_Y - riderY - 20, "#00f0ff", 24);
+  }
+  function moveLeft(){ if (state === "playing" && lane > 0) { lane--; blip(300); } }
+  function moveRight(){ if (state === "playing" && lane < 2) { lane++; blip(300); } }
+  function jump(){
+    if (state !== "playing" || jumping) return;
+    jumping = true; vy = -11; blip(520);
+  }
+  // Obstacle types, by distance band — pressure ramps by combination, not speed alone.
+  function pickType(){
+    if (distance < 100) return Math.random() < 0.7 ? "drop" : "puddle";
+    if (distance < 300) { var r = Math.random(); return r < 0.45 ? "drop" : (r < 0.8 ? "puddle" : "gust"); }
+    var r2 = Math.random(); return r2 < 0.4 ? "drop" : (r2 < 0.7 ? "puddle" : "gust");
+  }
+  function spawn(){
+    var type = pickType();
+    var l = Math.floor(Math.random() * 3);
+    // Avoid an impossible wall: never fill all three lanes at the same row.
+    var sameRow = obstacles.filter(function(o){ return Math.abs(o.y + 20) < 30; });
+    if (sameRow.length >= 2) return;
+    obstacles.push({type:type, lane:l, y:-20, dir: Math.random() < 0.5 ? -1 : 1, passed:false});
+  }
+  function hit(ob){
+    if (invuln > 0) return;
+    hearts--; invuln = 60; splash = 14;
+    burst(LANES[lane], GROUND_Y - riderY - 20, "#00f0ff", 18);
+    blip(160);
+    msgEl.textContent = hearts > 0 ? "Splashed! " + hearts + " dry left — keep going." : "Soaked!";
+    if (hearts <= 0) gameOver();
+  }
+  function step(){
+    if (state === "playing"){
+      tick++; distance += speed * 0.06;
+      // Gentle speed ramp, capped, so early runs stay forgiving.
+      speed = Math.min(5.2, 2.2 + distance / 400);
+      spawnTimer--;
+      if (spawnTimer <= 0){ spawn(); spawnTimer = Math.max(28, 70 - Math.floor(distance / 25)); }
+      if (jumping){
+        riderY += -vy; vy += 0.7;
+        // vy starts negative (up); riderY grows while rising, then falls back.
+        if (riderY <= 0){ riderY = 0; jumping = false; vy = 0; }
+      }
+      if (invuln > 0) invuln--;
+      if (splash > 0) splash--;
+      for (var i = obstacles.length - 1; i >= 0; i--){
+        var ob = obstacles[i];
+        ob.y += speed;
+        if (ob.type === "gust"){ ob.laneX = LANES[ob.lane] + Math.sin(tick / 12) * 18; }
+        if (ob.y > H + 30){ obstacles.splice(i, 1); continue; }
+        // Collision zone is the rider row.
+        if (Math.abs(ob.y - (GROUND_Y - 24)) < 26){
+          var x = ob.type === "gust" && ob.laneX !== undefined ? ob.laneX : LANES[ob.lane];
+          var sameLane = Math.abs(x - LANES[lane]) < 42;
+          if (sameLane && !ob.passed){
+            if (ob.type === "drop"){
+              // Drops must be dodged by lane change; jumping into one still counts.
+              hit(ob); ob.passed = true;
+            } else {
+              // Puddles and gusts are jumpable; a gust also shoves a grounded rider.
+              if (!jumping){
+                if (ob.type === "gust"){
+                  lane = Math.max(0, Math.min(2, lane + ob.dir));
+                  msgEl.textContent = "Gust pushed you! Jump the next one.";
+                  ob.passed = true; blip(220);
+                } else { hit(ob); ob.passed = true; }
+              } else { ob.passed = true; burst(x, GROUND_Y - 4, "#00f0ff", 6); }
+            }
+          }
+        }
+      }
+      for (var j = particles.length - 1; j >= 0; j--){
+        var p = particles[j]; p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life--;
+        if (p.life <= 0) particles.splice(j, 1);
+      }
+      renderHud();
+    }
+    draw();
+    requestAnimationFrame(step);
+  }
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    // Sky rain streaks (background, no collision).
+    ctx.strokeStyle = "rgba(0,240,255,0.18)"; ctx.lineWidth = 1;
+    for (var s = 0; s < 24; s++){
+      var sx = (s * 53 + tick) % W, sy = (s * 37 + tick * 2) % H;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - 4, sy + 12); ctx.stroke();
+    }
+    // Road and lane lines.
+    ctx.fillStyle = "#0a1a26"; ctx.fillRect(0, GROUND_Y - 60, W, 120);
+    ctx.strokeStyle = "#123a4a"; ctx.setLineDash([12, 14]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(140, GROUND_Y - 60); ctx.lineTo(140, H);
+    ctx.moveTo(260, GROUND_Y - 60); ctx.lineTo(260, H); ctx.stroke(); ctx.setLineDash([]);
+    // Obstacles.
+    obstacles.forEach(function(ob){
+      var x = ob.type === "gust" && ob.laneX !== undefined ? ob.laneX : LANES[ob.lane];
+      if (ob.type === "drop"){
+        ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(x, ob.y - 22); ctx.lineTo(x, ob.y + 22); ctx.stroke();
+        ctx.fillStyle = "#00f0ff"; ctx.beginPath(); ctx.arc(x, ob.y + 26, 4, 0, Math.PI * 2); ctx.fill();
+      } else if (ob.type === "puddle"){
+        ctx.fillStyle = "#00a8cc"; ctx.beginPath(); ctx.ellipse(x, ob.y, 34, 10, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#9beaff"; ctx.beginPath(); ctx.ellipse(x - 8, ob.y - 2, 12, 3, 0, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.strokeStyle = "#ff2e88"; ctx.lineWidth = 3;
+        for (var k = 0; k < 3; k++){
+          ctx.beginPath(); ctx.moveTo(x - 24, ob.y - 8 + k * 8);
+          ctx.quadraticCurveTo(x, ob.y - 14 + k * 8, x + 24, ob.y - 8 + k * 8); ctx.stroke();
+        }
+        ctx.fillStyle = "#ff2e88"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(ob.dir < 0 ? "◀ gust" : "gust ▶", x, ob.y - 18);
+      }
+    });
+    // Rider: simple bike + rider, flashing while invulnerable.
+    var rx = LANES[lane], ry = GROUND_Y - riderY;
+    if (!(invuln > 0 && Math.floor(tick / 4) % 2 === 0)){
+      ctx.fillStyle = "#ff2e88"; ctx.beginPath(); ctx.arc(rx, ry - 34, 10, 0, Math.PI * 2); ctx.fill(); // helmet
+      ctx.fillStyle = "#00f0ff"; ctx.fillRect(rx - 8, ry - 24, 16, 20); // jacket
+      ctx.fillStyle = "#e8fbff"; ctx.fillRect(rx - 22, ry - 8, 44, 5); // bike
+      ctx.strokeStyle = "#e8fbff"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(rx - 16, ry, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(rx + 16, ry, 9, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (splash > 0){
+      ctx.fillStyle = "rgba(0,240,255,0.15)"; ctx.fillRect(0, 0, W, H);
+    }
+    particles.forEach(function(p){
+      ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 4, 4);
+    });
+    if (state === "ready"){
+      ctx.fillStyle = "rgba(4,7,13,0.7)"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#e8fbff"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("Tap Start ride", W/2, H/2 - 10);
+      ctx.font = "14px sans-serif"; ctx.fillStyle = "#9beaff";
+      ctx.fillText("Drops: change lane. Puddles & gusts: jump.", W/2, H/2 + 16);
+    } else if (state === "paused"){
+      ctx.fillStyle = "rgba(4,7,13,0.7)"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#e8fbff"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("Paused", W/2, H/2);
+    }
+  }
+  // Controls: one-thumb swipe/tap + keys + buttons.
+  var touchX = null, touchY = null, touchMoved = false;
+  canvas.addEventListener("touchstart", function(e){
+    var t = e.touches[0]; touchX = t.clientX; touchY = t.clientY; touchMoved = false;
+  }, {passive:true});
+  canvas.addEventListener("touchmove", function(e){
+    if (touchX === null) return;
+    var t = e.touches[0], dx = t.clientX - touchX, dy = t.clientY - touchY;
+    if (Math.abs(dx) > 24){ if (dx < 0) moveLeft(); else moveRight(); touchX = t.clientX; touchMoved = true; }
+    if (dy < -24){ jump(); touchY = t.clientY; touchMoved = true; }
+    e.preventDefault();
+  }, {passive:false});
+  canvas.addEventListener("touchend", function(){
+    if (touchX !== null && !touchMoved) jump();
+    touchX = null; touchY = null;
+  });
+  canvas.addEventListener("mousedown", function(e){ touchX = e.clientX; touchY = e.clientY; touchMoved = false; });
+  canvas.addEventListener("mousemove", function(e){
+    if (touchX === null) return;
+    var dx = e.clientX - touchX;
+    if (Math.abs(dx) > 24){ if (dx < 0) moveLeft(); else moveRight(); touchX = e.clientX; touchMoved = true; }
+  });
+  canvas.addEventListener("mouseup", function(){ if (touchX !== null && !touchMoved) jump(); touchX = null; });
+  document.addEventListener("keydown", function(e){
+    if (e.key === "ArrowLeft" || e.key === "a") moveLeft();
+    else if (e.key === "ArrowRight" || e.key === "d") moveRight();
+    else if (e.key === "ArrowUp" || e.key === " "){ e.preventDefault(); jump(); }
+    else if (e.key === "p" && state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; }
+    else if (e.key === "p" && state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; }
+  });
+  document.getElementById("leftBtn").addEventListener("click", moveLeft);
+  document.getElementById("rightBtn").addEventListener("click", moveRight);
+  document.getElementById("jumpBtn").addEventListener("click", jump);
+  startBtn.addEventListener("click", start);
+  pauseBtn.addEventListener("click", function(){
+    if (state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; }
+    else if (state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; }
+  });
+  soundBtn.addEventListener("click", function(){
+    soundOn = !soundOn; save("rd-sound", soundOn);
+    soundBtn.textContent = soundOn ? "Sound: On" : "Sound: Off";
+  });
+  soundBtn.textContent = soundOn ? "Sound: On" : "Sound: Off";
+  reset(); renderHud(); requestAnimationFrame(step);
+})();
+</script>
+</body>
+</html>
