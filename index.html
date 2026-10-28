@@ -64,7 +64,7 @@
   var soundOn = load("rd-sound", true);
   var state = "ready"; // ready | playing | paused | over
   var lane = 1, riderY = 0, vy = 0, jumping = false;
-  var distance = 0, speed = 2.2, spawnTimer = 0, tick = 0;
+  var distance = 0, speed = 2.0, spawnTimer = 0, tick = 0;
   var hearts = 3, invuln = 0, obstacles = [], particles = [], splash = 0;
   var scoreEl = document.getElementById("score");
   var bestEl = document.getElementById("best");
@@ -106,7 +106,7 @@
   }
   function reset(){
     lane = 1; riderY = 0; vy = 0; jumping = false;
-    distance = 0; speed = 2.2; spawnTimer = 40; tick = 0;
+    distance = 0; speed = 2.0; spawnTimer = 40; tick = 0;
     hearts = 3; invuln = 0; obstacles = []; particles = []; splash = 0;
     renderHud(); renderRuns();
   }
@@ -150,23 +150,40 @@
     msgEl.textContent = hearts > 0 ? "Splashed! " + hearts + " dry left — keep going." : "Soaked!";
     if (hearts <= 0) gameOver();
   }
-  function step(){
+  /* Delta-time movement: the old loop ran one step per screen refresh,
+     so on a 120Hz phone the game ran about twice as fast as on a 60Hz
+     screen. Every movement is now scaled by real elapsed time, so the
+     game runs at the same speed on 60Hz and 120Hz screens, with the
+     frame gap clamped so a hiccup cannot teleport the rider. Base speed
+     is also eased slightly, the same way Breakout's was. */
+  var lastTs = 0, STEP_MS = 1000 / 60;
+  function step(ts){
+    var dt = 1;
+    if (ts !== undefined){
+      if (!lastTs) lastTs = ts;
+      var frameMs = ts - lastTs;
+      lastTs = ts;
+      if (frameMs > 100) frameMs = 100;
+      if (frameMs < 0) frameMs = 0;
+      dt = frameMs / STEP_MS;
+      if (dt > 2) dt = 2;
+    }
     if (state === "playing"){
-      tick++; distance += speed * 0.06;
+      tick += dt; distance += speed * 0.06 * dt;
       // Gentle speed ramp, capped, so early runs stay forgiving.
-      speed = Math.min(5.2, 2.2 + distance / 400);
-      spawnTimer--;
+      speed = Math.min(4.8, 2.0 + distance / 400);
+      spawnTimer -= dt;
       if (spawnTimer <= 0){ spawn(); spawnTimer = Math.max(28, 70 - Math.floor(distance / 25)); }
       if (jumping){
-        riderY += -vy; vy += 0.7;
+        riderY += -vy * dt; vy += 0.7 * dt;
         // vy starts negative (up); riderY grows while rising, then falls back.
         if (riderY <= 0){ riderY = 0; jumping = false; vy = 0; }
       }
-      if (invuln > 0) invuln--;
-      if (splash > 0) splash--;
+      if (invuln > 0) invuln -= dt;
+      if (splash > 0) splash -= dt;
       for (var i = obstacles.length - 1; i >= 0; i--){
         var ob = obstacles[i];
-        ob.y += speed;
+        ob.y += speed * dt;
         if (ob.type === "gust"){ ob.laneX = LANES[ob.lane] + Math.sin(tick / 12) * 18; }
         if (ob.y > H + 30){ obstacles.splice(i, 1); continue; }
         // Collision zone is the rider row.
@@ -191,7 +208,7 @@
         }
       }
       for (var j = particles.length - 1; j >= 0; j--){
-        var p = particles[j]; p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life--;
+        var p = particles[j]; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.15 * dt; p.life -= dt;
         if (p.life <= 0) particles.splice(j, 1);
       }
       renderHud();
