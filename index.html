@@ -108,18 +108,24 @@
     lane = 1; riderY = 0; vy = 0; jumping = false;
     distance = 0; speed = 2.0; spawnTimer = 40; tick = 0;
     hearts = 3; invuln = 0; obstacles = []; particles = []; splash = 0;
+    startBtn.textContent = "Start ride"; startBtn.style.display = "";
     renderHud(); renderRuns();
   }
   function start(){
-    reset(); state = "playing"; startBtn.textContent = "Restart";
+    reset(); state = "playing";
+    /* Restart is hidden while riding, so a thumb reaching for the
+       left arrow can never accidentally restart the run. It only
+       appears when the run is over or paused. */
+    startBtn.textContent = "Restart"; startBtn.style.display = "none";
     msgEl.textContent = "Ride! Dodge drops, jump puddles and gusts.";
     blip(440);
   }
   function gameOver(){
     state = "over";
+    startBtn.textContent = "Restart"; startBtn.style.display = "";
     runs.unshift(Math.floor(distance)); runs = runs.slice(0, 5); save("rd-runs", runs);
     renderRuns();
-    msgEl.textContent = "Soaked! " + Math.floor(distance) + "m. Best: " + best + "m. Tap Start ride for one more run.";
+    msgEl.textContent = "Soaked! " + Math.floor(distance) + "m. Best: " + best + "m. Tap Restart for one more run.";
     burst(LANES[lane], GROUND_Y - riderY - 20, "#00f0ff", 24);
   }
   function moveLeft(){ if (state === "playing" && lane > 0) { lane--; blip(300); } }
@@ -249,15 +255,40 @@
         ctx.fillText(ob.dir < 0 ? "◀ gust" : "gust ▶", x, ob.y - 18);
       }
     });
-    // Rider: simple bike + rider, flashing while invulnerable.
+    // Rider: a leaning motorcyclist on a proper bike, drawn in side
+    // profile — wheels, frame, tank, bent leg, leaning torso, arm to
+    // the bars, and a helmet with a visor — not a single vertical blob.
     var rx = LANES[lane], ry = GROUND_Y - riderY;
     if (!(invuln > 0 && Math.floor(tick / 4) % 2 === 0)){
-      ctx.fillStyle = "#ff2e88"; ctx.beginPath(); ctx.arc(rx, ry - 34, 10, 0, Math.PI * 2); ctx.fill(); // helmet
-      ctx.fillStyle = "#00f0ff"; ctx.fillRect(rx - 8, ry - 24, 16, 20); // jacket
-      ctx.fillStyle = "#e8fbff"; ctx.fillRect(rx - 22, ry - 8, 44, 5); // bike
+      // Wheels: dark tyres with light hubs and spokes.
+      [-18, 18].forEach(function(dx){
+        ctx.fillStyle = "#0a1a26"; ctx.beginPath(); ctx.arc(rx + dx, ry, 11, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#e8fbff"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = "#e8fbff"; ctx.beginPath(); ctx.arc(rx + dx, ry, 3, 0, Math.PI * 2); ctx.fill();
+      });
+      // Frame and tank.
+      ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(rx - 18, ry); ctx.lineTo(rx - 6, ry - 26); ctx.lineTo(rx + 10, ry - 24); ctx.lineTo(rx + 18, ry); ctx.stroke();
+      ctx.fillStyle = "#123a4a"; ctx.beginPath(); ctx.ellipse(rx + 2, ry - 26, 14, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 2; ctx.stroke();
+      // Seat and handlebar.
+      ctx.fillStyle = "#e8fbff"; ctx.fillRect(rx - 14, ry - 30, 12, 4);
       ctx.strokeStyle = "#e8fbff"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(rx - 16, ry, 9, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(rx + 16, ry, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(rx + 10, ry - 24); ctx.lineTo(rx + 16, ry - 30); ctx.stroke();
+      // Rider leg: hip to bent knee to footpeg.
+      ctx.strokeStyle = "#1a2e3a"; ctx.lineWidth = 6; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(rx - 4, ry - 22); ctx.lineTo(rx + 8, ry - 12); ctx.lineTo(rx + 14, ry - 4); ctx.stroke();
+      // Rider torso: leaning forward, jacket-coloured.
+      ctx.fillStyle = "#00f0ff";
+      ctx.beginPath();
+      ctx.moveTo(rx - 12, ry - 26); ctx.lineTo(rx - 2, ry - 42); ctx.lineTo(rx + 8, ry - 36); ctx.lineTo(rx + 2, ry - 20);
+      ctx.closePath(); ctx.fill();
+      // Rider arm: shoulder to handlebar grip.
+      ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 5; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(rx + 2, ry - 38); ctx.lineTo(rx + 16, ry - 30); ctx.stroke();
+      // Helmet with visor, ahead of the torso.
+      ctx.fillStyle = "#ff2e88"; ctx.beginPath(); ctx.arc(rx + 8, ry - 46, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#e8fbff"; ctx.fillRect(rx + 10, ry - 49, 7, 4);
     }
     if (splash > 0){
       ctx.fillStyle = "rgba(0,240,255,0.15)"; ctx.fillRect(0, 0, W, H);
@@ -304,16 +335,16 @@
     if (e.key === "ArrowLeft" || e.key === "a") moveLeft();
     else if (e.key === "ArrowRight" || e.key === "d") moveRight();
     else if (e.key === "ArrowUp" || e.key === " "){ e.preventDefault(); jump(); }
-    else if (e.key === "p" && state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; }
-    else if (e.key === "p" && state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; }
+    else if (e.key === "p" && state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; startBtn.textContent = "Restart"; startBtn.style.display = ""; }
+    else if (e.key === "p" && state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; startBtn.style.display = "none"; }
   });
   document.getElementById("leftBtn").addEventListener("click", moveLeft);
   document.getElementById("rightBtn").addEventListener("click", moveRight);
   document.getElementById("jumpBtn").addEventListener("click", jump);
   startBtn.addEventListener("click", start);
   pauseBtn.addEventListener("click", function(){
-    if (state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; }
-    else if (state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; }
+    if (state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; startBtn.textContent = "Restart"; startBtn.style.display = ""; }
+    else if (state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; startBtn.style.display = "none"; }
   });
   soundBtn.addEventListener("click", function(){
     soundOn = !soundOn; save("rd-sound", soundOn);
