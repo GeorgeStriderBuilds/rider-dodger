@@ -255,40 +255,42 @@
         ctx.fillText(ob.dir < 0 ? "◀ gust" : "gust ▶", x, ob.y - 18);
       }
     });
-    // Rider: a leaning motorcyclist on a proper bike, drawn in side
-    // profile — wheels, frame, tank, bent leg, leaning torso, arm to
-    // the bars, and a helmet with a visor — not a single vertical blob.
+    // Rider: travelling forward up the road, so the bike points up
+    // the screen and the head faces forward (up), not sideways.
+    // Seen from behind: rear wheel at the bottom, front wheel at the
+    // top, rider torso over the tank, helmet on top with its visor
+    // facing up, arms reaching to the bars, legs to the footpegs.
     var rx = LANES[lane], ry = GROUND_Y - riderY;
     if (!(invuln > 0 && Math.floor(tick / 4) % 2 === 0)){
-      // Wheels: dark tyres with light hubs and spokes.
-      [-18, 18].forEach(function(dx){
-        ctx.fillStyle = "#0a1a26"; ctx.beginPath(); ctx.arc(rx + dx, ry, 11, 0, Math.PI * 2); ctx.fill();
+      // Wheels: rear at the bottom, front at the top.
+      [0, -40].forEach(function(dy){
+        ctx.fillStyle = "#0a1a26"; ctx.beginPath(); ctx.arc(rx, ry + dy, 11, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = "#e8fbff"; ctx.lineWidth = 2; ctx.stroke();
-        ctx.fillStyle = "#e8fbff"; ctx.beginPath(); ctx.arc(rx + dx, ry, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#e8fbff"; ctx.beginPath(); ctx.arc(rx, ry + dy, 3, 0, Math.PI * 2); ctx.fill();
       });
-      // Frame and tank.
+      // Frame, tank, and handlebar.
       ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(rx - 18, ry); ctx.lineTo(rx - 6, ry - 26); ctx.lineTo(rx + 10, ry - 24); ctx.lineTo(rx + 18, ry); ctx.stroke();
-      ctx.fillStyle = "#123a4a"; ctx.beginPath(); ctx.ellipse(rx + 2, ry - 26, 14, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx, ry - 40); ctx.stroke();
+      ctx.fillStyle = "#123a4a"; ctx.beginPath(); ctx.ellipse(rx, ry - 26, 7, 13, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 2; ctx.stroke();
-      // Seat and handlebar.
-      ctx.fillStyle = "#e8fbff"; ctx.fillRect(rx - 14, ry - 30, 12, 4);
       ctx.strokeStyle = "#e8fbff"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(rx + 10, ry - 24); ctx.lineTo(rx + 16, ry - 30); ctx.stroke();
-      // Rider leg: hip to bent knee to footpeg.
+      ctx.beginPath(); ctx.moveTo(rx - 14, ry - 38); ctx.lineTo(rx + 14, ry - 38); ctx.stroke();
+      // Rider legs: hips to footpegs on each side.
       ctx.strokeStyle = "#1a2e3a"; ctx.lineWidth = 6; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(rx - 4, ry - 22); ctx.lineTo(rx + 8, ry - 12); ctx.lineTo(rx + 14, ry - 4); ctx.stroke();
-      // Rider torso: leaning forward, jacket-coloured.
+      ctx.beginPath(); ctx.moveTo(rx - 4, ry - 14); ctx.lineTo(rx - 14, ry - 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(rx + 4, ry - 14); ctx.lineTo(rx + 14, ry - 4); ctx.stroke();
+      // Rider torso: jacket-coloured, over the tank, leaning forward.
       ctx.fillStyle = "#00f0ff";
       ctx.beginPath();
-      ctx.moveTo(rx - 12, ry - 26); ctx.lineTo(rx - 2, ry - 42); ctx.lineTo(rx + 8, ry - 36); ctx.lineTo(rx + 2, ry - 20);
+      ctx.moveTo(rx - 10, ry - 12); ctx.lineTo(rx - 8, ry - 34); ctx.lineTo(rx + 8, ry - 34); ctx.lineTo(rx + 10, ry - 12);
       ctx.closePath(); ctx.fill();
-      // Rider arm: shoulder to handlebar grip.
+      // Rider arms: shoulders to the handlebar grips.
       ctx.strokeStyle = "#00f0ff"; ctx.lineWidth = 5; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(rx + 2, ry - 38); ctx.lineTo(rx + 16, ry - 30); ctx.stroke();
-      // Helmet with visor, ahead of the torso.
-      ctx.fillStyle = "#ff2e88"; ctx.beginPath(); ctx.arc(rx + 8, ry - 46, 9, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#e8fbff"; ctx.fillRect(rx + 10, ry - 49, 7, 4);
+      ctx.beginPath(); ctx.moveTo(rx - 8, ry - 32); ctx.lineTo(rx - 14, ry - 38); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(rx + 8, ry - 32); ctx.lineTo(rx + 14, ry - 38); ctx.stroke();
+      // Helmet, facing forward (up), visor on the leading edge.
+      ctx.fillStyle = "#ff2e88"; ctx.beginPath(); ctx.arc(rx, ry - 42, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#e8fbff"; ctx.fillRect(rx - 3, ry - 54, 6, 4);
     }
     if (splash > 0){
       ctx.fillStyle = "rgba(0,240,255,0.15)"; ctx.fillRect(0, 0, W, H);
