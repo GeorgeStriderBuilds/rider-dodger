@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Rider Dodger — A George &amp; Strider collab</title>
+<title>Rider Dodger · A George &amp; Strider collab</title>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:#04070d;color:#e8fbff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
@@ -53,6 +53,18 @@
   var canvas = document.getElementById("game");
   var ctx = canvas.getContext("2d");
   var W = 400, H = 520, LANES = [80, 200, 320], GROUND_Y = 452;
+  // DPR-sharp rendering: the shrink-to-fit CSS can display the canvas
+  // larger than its 400x520 backing store, which blurs it on high-DPI
+  // phones. Scale the backing store by devicePixelRatio (capped at 3)
+  // and keep drawing in logical 400x520 coordinates.
+  function fitDpr(){
+    var dpr = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  fitDpr();
+  window.addEventListener("resize", fitDpr);
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   function load(key, fallback){
     try { var v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); }
@@ -64,7 +76,7 @@
   var soundOn = load("rd-sound", true);
   var state = "ready"; // ready | playing | paused | over
   var lane = 1, riderY = 0, vy = 0, jumping = false;
-  var distance = 0, speed = 2.0, spawnTimer = 0, tick = 0;
+  var distance = 0, speed = 2.0, spawnTimer = 0, tick = 0, elapsed = 0;
   var hearts = 3, invuln = 0, obstacles = [], particles = [], splash = 0;
   var scoreEl = document.getElementById("score");
   var bestEl = document.getElementById("best");
@@ -82,7 +94,7 @@
   function renderHud(){
     scoreEl.textContent = "Distance: " + Math.floor(distance) + "m";
     bestEl.textContent = "Best: " + best + "m";
-    heartsEl.textContent = hearts > 0 ? "💧".repeat(hearts) : "—";
+    heartsEl.textContent = hearts > 0 ? "💧".repeat(hearts) : "✕";
     if (Math.floor(distance) > best) { best = Math.floor(distance); save("rd-best", best); }
   }
   function blip(freq){
@@ -106,7 +118,7 @@
   }
   function reset(){
     lane = 1; riderY = 0; vy = 0; jumping = false;
-    distance = 0; speed = 2.0; spawnTimer = 40; tick = 0;
+    distance = 0; speed = 2.0; spawnTimer = 40; tick = 0; elapsed = 0;
     hearts = 3; invuln = 0; obstacles = []; particles = []; splash = 0;
     startBtn.textContent = "Start ride"; startBtn.style.display = "";
     renderHud(); renderRuns();
@@ -128,13 +140,28 @@
     msgEl.textContent = "Soaked! " + Math.floor(distance) + "m. Best: " + best + "m. Tap Restart for one more run.";
     burst(LANES[lane], GROUND_Y - riderY - 20, "#00f0ff", 24);
   }
+  function pauseGame(){
+    if (state !== "playing") return;
+    state = "paused"; pauseBtn.textContent = "Resume";
+    startBtn.textContent = "Restart"; startBtn.style.display = "";
+    msgEl.textContent = "Paused. Tap the road to resume.";
+  }
+  function resumeGame(){
+    if (state !== "paused") return;
+    state = "playing"; pauseBtn.textContent = "Pause"; startBtn.style.display = "none";
+    msgEl.textContent = "Ride! Dodge drops, jump puddles and gusts.";
+  }
+  // A hidden tab pauses the run instead of ending it; tap the road to resume.
+  document.addEventListener("visibilitychange", function(){
+    if (document.hidden) pauseGame();
+  });
   function moveLeft(){ if (state === "playing" && lane > 0) { lane--; blip(300); } }
   function moveRight(){ if (state === "playing" && lane < 2) { lane++; blip(300); } }
   function jump(){
     if (state !== "playing" || jumping) return;
     jumping = true; vy = -11; blip(520);
   }
-  // Obstacle types, by distance band — pressure ramps by combination, not speed alone.
+  // Obstacle types, by distance band. Pressure ramps by combination, not speed alone.
   function pickType(){
     if (distance < 100) return Math.random() < 0.7 ? "drop" : "puddle";
     if (distance < 300) { var r = Math.random(); return r < 0.45 ? "drop" : (r < 0.8 ? "puddle" : "gust"); }
@@ -153,7 +180,7 @@
     hearts--; invuln = 60; splash = 14;
     burst(LANES[lane], GROUND_Y - riderY - 20, "#00f0ff", 18);
     blip(160);
-    msgEl.textContent = hearts > 0 ? "Splashed! " + hearts + " dry left — keep going." : "Soaked!";
+    msgEl.textContent = hearts > 0 ? "Splashed! " + hearts + " dry left. Keep going." : "Soaked!";
     if (hearts <= 0) gameOver();
   }
   /* Delta-time movement: the old loop ran one step per screen refresh,
@@ -175,11 +202,15 @@
       if (dt > 2) dt = 2;
     }
     if (state === "playing"){
-      tick += dt; distance += speed * 0.06 * dt;
-      // Gentle speed ramp, capped, so early runs stay forgiving.
-      speed = Math.min(4.8, 2.0 + distance / 400);
+      tick += dt; elapsed += dt / 60; distance += speed * 0.06 * dt;
+      /* Difficulty ramp, Veil Skiff style: elapsed time drives obstacle
+         speed and spawn density. Gentle for the first minute, clearly
+         harder by minute two. Endpoints match the old distance-based
+         ramp, so the feel George knows is preserved. */
+      var ramp = Math.min(1, elapsed / 120);
+      speed = 2.0 + ramp * 2.8;
       spawnTimer -= dt;
-      if (spawnTimer <= 0){ spawn(); spawnTimer = Math.max(28, 70 - Math.floor(distance / 25)); }
+      if (spawnTimer <= 0){ spawn(); spawnTimer = 70 - Math.floor(ramp * 42); }
       if (jumping){
         riderY += -vy * dt; vy += 0.7 * dt;
         // vy starts negative (up); riderY grows while rising, then falls back.
@@ -301,13 +332,25 @@
     if (state === "ready"){
       ctx.fillStyle = "rgba(4,7,13,0.7)"; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = "#e8fbff"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText("Tap Start ride", W/2, H/2 - 10);
+      ctx.fillText("Ready when you are.", W/2, H/2 - 34);
       ctx.font = "14px sans-serif"; ctx.fillStyle = "#9beaff";
-      ctx.fillText("Drops: change lane. Puddles & gusts: jump.", W/2, H/2 + 16);
+      ctx.fillText("Wet road, low sky. Stay dry out there.", W/2, H/2 - 8);
+      ctx.fillText("Drops: change lane. Puddles and gusts: jump.", W/2, H/2 + 18);
     } else if (state === "paused"){
       ctx.fillStyle = "rgba(4,7,13,0.7)"; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = "#e8fbff"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText("Paused", W/2, H/2);
+      ctx.fillText("Paused", W/2, H/2 - 10);
+      ctx.font = "14px sans-serif"; ctx.fillStyle = "#9beaff";
+      ctx.fillText("Tap the road to resume.", W/2, H/2 + 16);
+    } else if (state === "over"){
+      ctx.fillStyle = "rgba(4,7,13,0.75)"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#ff2e88"; ctx.font = "bold 24px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("SOAKED", W/2, H/2 - 40);
+      ctx.fillStyle = "#e8fbff"; ctx.font = "bold 18px sans-serif";
+      ctx.fillText(Math.floor(distance) + "m", W/2, H/2 - 10);
+      ctx.font = "14px sans-serif"; ctx.fillStyle = "#9beaff";
+      ctx.fillText("Best: " + best + "m", W/2, H/2 + 14);
+      ctx.fillText("Caught by the rain. Shake it off, ride again.", W/2, H/2 + 38);
     }
   }
   // Controls: one-thumb swipe/tap + keys + buttons.
@@ -323,6 +366,7 @@
     e.preventDefault();
   }, {passive:false});
   canvas.addEventListener("touchend", function(){
+    if (state === "paused"){ resumeGame(); touchX = null; touchY = null; return; }
     if (touchX !== null && !touchMoved) jump();
     touchX = null; touchY = null;
   });
@@ -332,21 +376,24 @@
     var dx = e.clientX - touchX;
     if (Math.abs(dx) > 24){ if (dx < 0) moveLeft(); else moveRight(); touchX = e.clientX; touchMoved = true; }
   });
-  canvas.addEventListener("mouseup", function(){ if (touchX !== null && !touchMoved) jump(); touchX = null; });
+  canvas.addEventListener("mouseup", function(){
+    if (state === "paused"){ resumeGame(); touchX = null; return; }
+    if (touchX !== null && !touchMoved) jump(); touchX = null;
+  });
   document.addEventListener("keydown", function(e){
     if (e.key === "ArrowLeft" || e.key === "a") moveLeft();
     else if (e.key === "ArrowRight" || e.key === "d") moveRight();
     else if (e.key === "ArrowUp" || e.key === " "){ e.preventDefault(); jump(); }
-    else if (e.key === "p" && state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; startBtn.textContent = "Restart"; startBtn.style.display = ""; }
-    else if (e.key === "p" && state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; startBtn.style.display = "none"; }
+    else if (e.key === "p" && state === "playing"){ pauseGame(); }
+    else if (e.key === "p" && state === "paused"){ resumeGame(); }
   });
   document.getElementById("leftBtn").addEventListener("click", moveLeft);
   document.getElementById("rightBtn").addEventListener("click", moveRight);
   document.getElementById("jumpBtn").addEventListener("click", jump);
   startBtn.addEventListener("click", start);
   pauseBtn.addEventListener("click", function(){
-    if (state === "playing"){ state = "paused"; pauseBtn.textContent = "Resume"; startBtn.textContent = "Restart"; startBtn.style.display = ""; }
-    else if (state === "paused"){ state = "playing"; pauseBtn.textContent = "Pause"; startBtn.style.display = "none"; }
+    if (state === "playing") pauseGame();
+    else if (state === "paused") resumeGame();
   });
   soundBtn.addEventListener("click", function(){
     soundOn = !soundOn; save("rd-sound", soundOn);
